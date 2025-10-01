@@ -143,6 +143,30 @@ const App = () => {
         updateAndSaveWeeklyLog(newLog);
     };
 
+    const getNutritionalInfo = async (foodDescription) => {
+        const apiKey = "AIzaSyDBQU_V2reiqvz_pgY-BLpu4uDeHInlVss";
+        const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${apiKey}`;
+        const payload = {
+            contents: [{ parts: [{ text: `Analyze the following food item and provide its nutritional information: "${foodDescription}"` }] }],
+            systemInstruction: { parts: [{ text: "You are a nutritional analysis expert. Respond ONLY with a JSON object." }] },
+            generationConfig: {
+                responseMimeType: "application/json",
+                responseSchema: { type: "OBJECT", properties: { food_name: { "type": "STRING" }, calories: { "type": "NUMBER" }, protein_g: { "type": "NUMBER" }, carbs_g: { "type": "NUMBER" }, fat_g: { "type": "NUMBER" }, fiber_g: { "type": "NUMBER" } }, required: ["food_name", "calories", "protein_g", "carbs_g", "fat_g", "fiber_g"] }
+            }
+        };
+        try {
+            const response = await fetch(apiUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+            if (!response.ok) throw new Error(`API request failed with status ${response.status}`);
+            const result = await response.json();
+            if (result.candidates?.[0]?.content?.parts?.[0]?.text) { return JSON.parse(result.candidates[0].content.parts[0].text); }
+            else { throw new Error("Invalid response from nutrition service."); }
+        } catch (apiError) {
+             console.error("API Call failed:", apiError);
+             setError({ title: "AI Error", message: "Failed to analyze food. The AI service may be busy."});
+             return null;
+        }
+    };
+
     const handleFormSubmit = async (e) => {
         e.preventDefault();
         if (!userInput.trim() || isLoading) return;
@@ -177,29 +201,6 @@ const App = () => {
         }
     };
 
-    const getNutritionalInfo = async (foodDescription) => {
-        const apiKey = "AIzaSyDBQU_V2reiqvz_pgY-BLpu4uDeHInlVss";
-        const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${apiKey}`;
-        const payload = {
-            contents: [{ parts: [{ text: `Analyze the following food item and provide its nutritional information: "${foodDescription}"` }] }],
-            systemInstruction: { parts: [{ text: "You are a nutritional analysis expert. Respond ONLY with a JSON object." }] },
-            generationConfig: {
-                responseMimeType: "application/json",
-                responseSchema: { type: "OBJECT", properties: { food_name: { "type": "STRING" }, calories: { "type": "NUMBER" }, protein_g: { "type": "NUMBER" }, carbs_g: { "type": "NUMBER" }, fat_g: { "type": "NUMBER" }, fiber_g: { "type": "NUMBER" } }, required: ["food_name", "calories", "protein_g", "carbs_g", "fat_g", "fiber_g"] }
-            }
-        };
-        try {
-            const response = await fetch(apiUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-            if (!response.ok) throw new Error(`API request failed with status ${response.status}`);
-            const result = await response.json();
-            if (result.candidates?.[0]?.content?.parts?.[0]?.text) { return JSON.parse(result.candidates[0].content.parts[0].text); }
-            else { throw new Error("Invalid response from nutrition service."); }
-        } catch (apiError) {
-             console.error("API Call failed:", apiError);
-             setError({ title: "AI Error", message: "Failed to analyze food. The AI service may be busy."});
-             return null;
-        }
-    };
 
     return (
         <div className="bg-slate-50 min-h-screen font-sans text-slate-800 antialiased">
@@ -357,6 +358,37 @@ const FoodLogItem = ({ item, onEdit, onDelete }) => {
     );
 };
 
+const getAIGoalRecommendation = async (profile) => {
+    const apiKey = "AIzaSyDBQU_V2reiqvz_pgY-BLpu4uDeHInlVss";
+    const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${apiKey}`;
+    const prompt = `Based on the following user profile, calculate their nutritional goals (calories, protein, carbs, fat, fiber).
+    - Age: ${profile.age}
+    - Gender: ${profile.gender}
+    - Height: ${profile.height} cm
+    - Weight: ${profile.weight} kg
+    - Activity Level: ${profile.activityLevel}
+    - Fitness Goal: ${profile.fitnessGoal}`;
+
+    const payload = {
+        contents: [{ parts: [{ text: prompt }] }],
+        systemInstruction: { parts: [{ text: "You are a nutritional expert. Calculate BMR using Mifflin-St Jeor, then daily calories using the Harris-Benedict activity multiplier. Adjust calories based on fitness goal (-500 for weight loss, +300 for muscle gain). Set protein to 1.6g/kg for muscle gain, 1.2g/kg otherwise. Set fat to 25% of calories. Fill the rest with carbs. Fiber should be 14g per 1000 calories. Respond ONLY with a JSON object with integer values." }] },
+        generationConfig: {
+            responseMimeType: "application/json",
+            responseSchema: { type: "OBJECT", properties: { calories: { "type": "NUMBER" }, protein_g: { "type": "NUMBER" }, carbs_g: { "type": "NUMBER" }, fat_g: { "type": "NUMBER" }, fiber_g: { "type": "NUMBER" } }, required: ["calories", "protein_g", "carbs_g", "fat_g", "fiber_g"] }
+        }
+    };
+    try {
+        const response = await fetch(apiUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+        if (!response.ok) throw new Error(`API request failed with status ${response.status}`);
+        const result = await response.json();
+        if (result.candidates?.[0]?.content?.parts?.[0]?.text) { return JSON.parse(result.candidates[0].content.parts[0].text); }
+        else { throw new Error("Invalid response from AI goal service."); }
+    } catch (apiError) {
+         console.error("AI Goal Recommendation failed:", apiError);
+         return null;
+    }
+};
+
 const GoalsModal = ({ initialGoals, onSave, onClose, userProfile, onSaveProfile }) => {
     const [goals, setGoals] = useState(initialGoals);
     const [isAssistantOpen, setIsAssistantOpen] = useState(false);
@@ -412,36 +444,6 @@ const GoalsModal = ({ initialGoals, onSave, onClose, userProfile, onSaveProfile 
     );
 };
 
-const getAIGoalRecommendation = async (profile) => {
-    const apiKey = "AIzaSyDBQU_V2reiqvz_pgY-BLpu4uDeHInlVss";
-    const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${apiKey}`;
-    const prompt = `Based on the following user profile, calculate their nutritional goals (calories, protein, carbs, fat, fiber).
-    - Age: ${profile.age}
-    - Gender: ${profile.gender}
-    - Height: ${profile.height} cm
-    - Weight: ${profile.weight} kg
-    - Activity Level: ${profile.activityLevel}
-    - Fitness Goal: ${profile.fitnessGoal}`;
-
-    const payload = {
-        contents: [{ parts: [{ text: prompt }] }],
-        systemInstruction: { parts: [{ text: "You are a nutritional expert. Calculate BMR using Mifflin-St Jeor, then daily calories using the Harris-Benedict activity multiplier. Adjust calories based on fitness goal (-500 for weight loss, +300 for muscle gain). Set protein to 1.6g/kg for muscle gain, 1.2g/kg otherwise. Set fat to 25% of calories. Fill the rest with carbs. Fiber should be 14g per 1000 calories. Respond ONLY with a JSON object with integer values." }] },
-        generationConfig: {
-            responseMimeType: "application/json",
-            responseSchema: { type: "OBJECT", properties: { calories: { "type": "NUMBER" }, protein_g: { "type": "NUMBER" }, carbs_g: { "type": "NUMBER" }, fat_g: { "type": "NUMBER" }, fiber_g: { "type": "NUMBER" } }, required: ["calories", "protein_g", "carbs_g", "fat_g", "fiber_g"] }
-        }
-    };
-    try {
-        const response = await fetch(apiUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-        if (!response.ok) throw new Error(`API request failed with status ${response.status}`);
-        const result = await response.json();
-        if (result.candidates?.[0]?.content?.parts?.[0]?.text) { return JSON.parse(result.candidates[0].content.parts[0].text); }
-        else { throw new Error("Invalid response from AI goal service."); }
-    } catch (apiError) {
-         console.error("AI Goal Recommendation failed:", apiError);
-         return null;
-    }
-};
 
 const GoalAssistantModal = ({ userProfile, onApply, onClose }) => {
     const [profile, setProfile] = useState(userProfile);
