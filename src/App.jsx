@@ -178,7 +178,27 @@ const App = () => {
     };
 
     const getNutritionalInfo = async (foodDescription) => {
-        // ... (omitted for brevity, same as before)
+        const apiKey = process.env.REACT_APP_GEMINI_API_KEY;
+        const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${apiKey}`;
+        const payload = {
+            contents: [{ parts: [{ text: `Analyze the following food item and provide its nutritional information: "${foodDescription}"` }] }],
+            systemInstruction: { parts: [{ text: "You are a nutritional analysis expert. Respond ONLY with a JSON object." }] },
+            generationConfig: {
+                responseMimeType: "application/json",
+                responseSchema: { type: "OBJECT", properties: { food_name: { "type": "STRING" }, calories: { "type": "NUMBER" }, protein_g: { "type": "NUMBER" }, carbs_g: { "type": "NUMBER" }, fat_g: { "type": "NUMBER" }, fiber_g: { "type": "NUMBER" } }, required: ["food_name", "calories", "protein_g", "carbs_g", "fat_g", "fiber_g"] }
+            }
+        };
+        try {
+            const response = await fetch(apiUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+            if (!response.ok) throw new Error(`API request failed with status ${response.status}`);
+            const result = await response.json();
+            if (result.candidates?.[0]?.content?.parts?.[0]?.text) { return JSON.parse(result.candidates[0].content.parts[0].text); }
+            else { throw new Error("Invalid response from nutrition service."); }
+        } catch (apiError) {
+             console.error("API Call failed:", apiError);
+             setError({ title: "AI Error", message: "Failed to analyze food. The AI service may be busy."});
+             return null;
+        }
     };
 
     return (
@@ -310,9 +330,33 @@ const WeeklyLogSummary = ({ weeklyLog }) => {
 
 const FoodLogList = ({ log, onEdit, onDelete }) => ( <div> <h2 className="text-xl font-semibold text-slate-800 mb-3">Today's Log</h2> {log.length === 0 ? ( <p className="text-center text-slate-500 bg-white p-6 rounded-xl border-2 border-slate-200 border-dashed"> Your food log for today is empty. </p> ) : ( <ul className="space-y-3"> {log.map((item) => <FoodLogItem key={item.id} item={item} onEdit={onEdit} onDelete={onDelete}/>)} </ul> )} </div> );
 
-// ... other components (GoalsModal, GoalInput, FoodLogItem, Spinner, etc.) remain largely the same
-// ... I have omitted them here for brevity but they are included in the full file.
-// --- The rest of the sub-components ---
+const FoodLogItem = ({ item, onEdit, onDelete }) => {
+    return (
+        <li className="rounded-xl border-2 border-slate-200 bg-white p-4 shadow-sm">
+            <div className="flex items-start justify-between gap-4">
+                <div className="flex-1">
+                    <p className="font-semibold text-slate-900">{item.food_name}</p>
+                    <p className="text-sm text-slate-500 italic">"{item.originalQuery}"</p>
+                </div>
+                <div className="flex-shrink-0 text-right">
+                    <p className="font-bold text-lg text-indigo-600">{Math.round(item.calories)}</p>
+                    <p className="text-xs text-slate-500 -mt-1">kcal</p>
+                </div>
+            </div>
+            <div className="mt-3 grid grid-cols-4 gap-2 text-center text-sm">
+                <div className="rounded-md bg-emerald-50 p-2"> <span className="font-medium text-emerald-800">{Math.round(item.protein_g)}g</span> <span className="text-emerald-600">P</span> </div>
+                <div className="rounded-md bg-amber-50 p-2"> <span className="font-medium text-amber-800">{Math.round(item.carbs_g)}g</span> <span className="text-amber-600">C</span> </div>
+                <div className="rounded-md bg-rose-50 p-2"> <span className="font-medium text-rose-800">{Math.round(item.fat_g)}g</span> <span className="text-rose-600">F</span> </div>
+                <div className="rounded-md bg-violet-50 p-2"> <span className="font-medium text-violet-800">{Math.round(item.fiber_g || 0)}g</span> <span className="text-violet-600">Fb</span> </div>
+            </div>
+            <div className="mt-3 flex justify-end gap-2">
+                 <button onClick={() => onEdit(item)} className="text-xs font-semibold text-slate-500 hover:text-indigo-600 transition-colors">Edit</button>
+                 <button onClick={() => onDelete(item.id)} className="text-xs font-semibold text-slate-500 hover:text-red-600 transition-colors">Delete</button>
+            </div>
+        </li>
+    );
+};
+
 const GoalsModal = ({ initialGoals, onSave, onClose, userProfile, onSaveProfile }) => {
     const [goals, setGoals] = useState(initialGoals);
     const [isAssistantOpen, setIsAssistantOpen] = useState(false);
@@ -369,7 +413,34 @@ const GoalsModal = ({ initialGoals, onSave, onClose, userProfile, onSaveProfile 
 };
 
 const getAIGoalRecommendation = async (profile) => {
-    // ... same as before
+    const apiKey = process.env.REACT_APP_GEMINI_API_KEY;
+    const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${apiKey}`;
+    const prompt = `Based on the following user profile, calculate their nutritional goals (calories, protein, carbs, fat, fiber).
+    - Age: ${profile.age}
+    - Gender: ${profile.gender}
+    - Height: ${profile.height} cm
+    - Weight: ${profile.weight} kg
+    - Activity Level: ${profile.activityLevel}
+    - Fitness Goal: ${profile.fitnessGoal}`;
+
+    const payload = {
+        contents: [{ parts: [{ text: prompt }] }],
+        systemInstruction: { parts: [{ text: "You are a nutritional expert. Calculate BMR using Mifflin-St Jeor, then daily calories using the Harris-Benedict activity multiplier. Adjust calories based on fitness goal (-500 for weight loss, +300 for muscle gain). Set protein to 1.6g/kg for muscle gain, 1.2g/kg otherwise. Set fat to 25% of calories. Fill the rest with carbs. Fiber should be 14g per 1000 calories. Respond ONLY with a JSON object with integer values." }] },
+        generationConfig: {
+            responseMimeType: "application/json",
+            responseSchema: { type: "OBJECT", properties: { calories: { "type": "NUMBER" }, protein_g: { "type": "NUMBER" }, carbs_g: { "type": "NUMBER" }, fat_g: { "type": "NUMBER" }, fiber_g: { "type": "NUMBER" } }, required: ["calories", "protein_g", "carbs_g", "fat_g", "fiber_g"] }
+        }
+    };
+    try {
+        const response = await fetch(apiUrl, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+        if (!response.ok) throw new Error(`API request failed with status ${response.status}`);
+        const result = await response.json();
+        if (result.candidates?.[0]?.content?.parts?.[0]?.text) { return JSON.parse(result.candidates[0].content.parts[0].text); }
+        else { throw new Error("Invalid response from AI goal service."); }
+    } catch (apiError) {
+         console.error("AI Goal Recommendation failed:", apiError);
+         return null;
+    }
 };
 
 const GoalAssistantModal = ({ userProfile, onApply, onClose }) => {
@@ -497,35 +568,6 @@ const GoalInput = ({ label, name, value, onChange, unit }) => (
         </div>
     </div>
 );
-const FoodLogItem = ({ item, onEdit, onDelete }) => {
-    const itemHealthScore = calculateHealthScore(item);
-    const { emoji, text, color } = getHealthEmoji(itemHealthScore);
-    return (
-        <li className="rounded-xl border-2 border-slate-200 bg-white p-4 shadow-sm">
-            <div className="flex items-start justify-between gap-4">
-                <div className="flex-1">
-                    <p className="font-semibold text-slate-900">{item.food_name}</p>
-                    <p className="text-sm text-slate-500 italic">"{item.originalQuery}"</p>
-                </div>
-                <div className="flex items-center gap-4 text-right">
-                    <div className="flex-shrink-0 text-center" title={`Health Score: ${text}`}> <p className={`text-2xl ${color}`}>{emoji}</p> <p className="text-xs text-slate-500 -mt-1">Score</p> </div>
-                    <div className="flex-shrink-0"> <p className="font-bold text-lg text-indigo-600">{Math.round(item.calories)}</p> <p className="text-xs text-slate-500 -mt-1">kcal</p> </div>
-                </div>
-            </div>
-            <div className="mt-3 grid grid-cols-4 gap-2 text-center text-sm">
-                <div className="rounded-md bg-emerald-50 p-2"> <span className="font-medium text-emerald-800">{Math.round(item.protein_g)}g</span> <span className="text-emerald-600">P</span> </div>
-                <div className="rounded-md bg-amber-50 p-2"> <span className="font-medium text-amber-800">{Math.round(item.carbs_g)}g</span> <span className="text-amber-600">C</span> </div>
-                <div className="rounded-md bg-rose-50 p-2"> <span className="font-medium text-rose-800">{Math.round(item.fat_g)}g</span> <span className="text-rose-600">F</span> </div>
-                <div className="rounded-md bg-violet-50 p-2"> <span className="font-medium text-violet-800">{Math.round(item.fiber_g || 0)}g</span> <span className="text-violet-600">Fb</span> </div>
-            </div>
-            <div className="mt-3 flex justify-end gap-2">
-                 <button onClick={() => onEdit(item)} className="text-xs font-semibold text-slate-500 hover:text-indigo-600 transition-colors">Edit</button>
-                 <button onClick={() => onDelete(item.id)} className="text-xs font-semibold text-slate-500 hover:text-red-600 transition-colors">Delete</button>
-            </div>
-        </li>
-    );
-};
-
 const Spinner = () => ( <svg className="h-5 w-5 animate-spin text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"> <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle> <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path> </svg> );
 
 
