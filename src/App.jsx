@@ -157,7 +157,7 @@ const App = () => {
     };
 
     const getNutritionalInfo = async (foodDescription) => {
-        const apiKey = "";
+        const apiKey = process.env.REACT_APP_GEMINI_API_KEY;
         const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${apiKey}`;
         const payload = {
             contents: [{ parts: [{ text: `Analyze the following food item and provide its nutritional information: "${foodDescription}"` }] }],
@@ -325,7 +325,7 @@ const GoalsModal = ({ initialGoals, onSave, onClose, userProfile, onSaveProfile 
 };
 
 const getAIGoalRecommendation = async (profile) => {
-    const apiKey = "";
+    const apiKey = process.env.REACT_APP_GEMINI_API_KEY;
     const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${apiKey}`;
     const prompt = `Based on the following user profile, calculate their nutritional goals (calories, protein, carbs, fat, fiber).
     - Age: ${profile.age}
